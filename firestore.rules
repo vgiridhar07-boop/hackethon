@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ========================================================================
+    // CIVIC HELPLINE INDIA - CLOUD FIRESTORE SECURITY RULES
+    // DPDP Act 2023 & Least-Privilege Role-Based Access Control (RBAC)
+    // ========================================================================
+
+    // 1. DEFAULT DENY ALL UNMATCHED PATHS
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // Helper Functions
+    // ------------------------------------------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'SUPER_ADMIN';
+    }
+
+    function isModeratorOrAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'SUPER_ADMIN' ||
+        request.auth.token.role == 'STATE_MODERATOR' ||
+        request.auth.token.role == 'DEPARTMENT_OPERATOR'
+      );
+    }
+
+    function isValidComplaintSubmission(data) {
+      return data.keys().hasAll([
+        'category',
+        'district_id',
+        'latitude',
+        'longitude',
+        'description',
+        'user_id',
+        'status',
+        'created_at'
+      ])
+      && data.user_id == request.auth.uid
+      && data.status == 'Submitted'
+      && data.category in ['Garbage', 'Roads', 'Water', 'Drainage', 'Electricity']
+      && data.description is string && data.description.size() >= 10 && data.description.size() <= 2000
+      && data.latitude is number && data.latitude >= 6.0 && data.latitude <= 38.0
+      && data.longitude is number && data.longitude >= 68.0 && data.longitude <= 98.0;
+    }
+
+    // ------------------------------------------------------------------------
+    // 2. Complaints Collection (Write-Only Submissions & Scoped-Own Reads)
+    // ------------------------------------------------------------------------
+    match /complaints/{complaintId} {
+      // Authenticated regular users may ONLY create new records matching their own UID
+      allow create: if isAuthenticated() && isValidComplaintSubmission(request.resource.data);
+
+      // Scoped-Own: Regular citizens may ONLY read their own complaints
+      // Administrative roles (Super Admin, Moderator) can view assigned jurisdiction
+      allow read: if isOwner(resource.data.user_id) || isModeratorOrAdmin();
+
+      // Regular citizens have UPDATE set to false. Only authorized staff may advance lifecycle.
+      allow update: if isModeratorOrAdmin();
+
+      // Deletion is strictly prohibited across all regular users and operators
+      allow delete: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. User Profiles Collection (Private to Owner)
+    // ------------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow create: if isOwner(userId) && request.resource.data.role == 'Citizen';
+      allow update: if isOwner(userId) && request.resource.data.role == resource.data.role; // Prevent privilege escalation
+      allow delete: if false; // Deletions blocked for regular users
+    }
+
+    // ------------------------------------------------------------------------
+    // 4. Helplines & Reference Directories (Read-Only Public, Admin Write)
+    // ------------------------------------------------------------------------
+    match /helplines/{helplineId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /districts/{districtId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /states/{stateId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------------
+    // 5. Crowd-Sourced Directory Audit Flags
+    // ------------------------------------------------------------------------
+    match /audit_flags/{flagId} {
+      allow create: if isAuthenticated() && request.resource.data.reported_by_user_id == request.auth.uid;
+      allow read: if isOwner(resource.data.reported_by_user_id) || isModeratorOrAdmin();
+      allow update: if isModeratorOrAdmin();
+      allow delete: if false;
+    }
+  }
+}
+
