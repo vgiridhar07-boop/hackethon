@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { RegionProvider } from './context/RegionContext';
 
 // Lazy-loaded route views for optimal code-splitting and bundling
 const RoleSelectionGatewayPage = lazy(() => import('./pages/RoleSelectionGatewayPage'));
@@ -65,10 +66,11 @@ export const AppRouter: React.FC = () => {
     typeof window !== 'undefined' && window.location.hostname.startsWith('officer.');
 
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
+    <RegionProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
             {isOfficerSubdomain ? (
               <>
                 <Route path="/" element={<OfficerPortalLoginPage />} />
@@ -168,6 +170,7 @@ export const AppRouter: React.FC = () => {
         </Suspense>
       </BrowserRouter>
     </AuthProvider>
+  </RegionProvider>
   );
 };
 

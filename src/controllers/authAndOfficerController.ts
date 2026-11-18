@@ -6,6 +6,7 @@ import { lookupOfficerJurisdictionByPhone } from '../config/official_registry_20
 import { dispatchEngine, ClaimTicketInputSchema } from '../services/dispatchEngine';
 import { DISTRICT_ROUTING_170 } from '../data/districtRouting170';
 import { STATES_UTS } from '../data/statesUts';
+import { smsDispatchService } from '../services/smsDispatchService';
 
 export interface OfficerRecord {
   officer_id: string;
@@ -139,16 +140,68 @@ export function createAuthAndOfficerRouter(
   const router = Router();
 
   // ---------------------------------------------------------------------------
-  // 1. CITIZEN OTP LOGIN -> Routes to EXISTING Citizen Portal (/citizen/dashboard)
+  // 1. CITIZEN / USER OTP FLOW (CSPRNG, SMS PIPELINE & VERIFY)
   // ---------------------------------------------------------------------------
+  const citizenSendOtpHandler = async (req: Request, res: Response) => {
+    const rawPhone = req.body.phoneNumber || req.body.phone;
+    if (!rawPhone) {
+      return res.status(400).json({ error: 'Mobile phone number is required.' });
+    }
+    const cleanPhone = smsDispatchService.normalizePhoneNumber(rawPhone);
+    if (!/^\d{10}$/.test(cleanPhone)) {
+      return res.status(400).json({ error: 'Valid 10-digit mobile number required.' });
+    }
+
+    try {
+      const receipt = await smsDispatchService.sendOtp(cleanPhone);
+      const toastString = receipt.virtualSmsToast?.message
+        ? `SMS from CivicAuth: ${receipt.virtualSmsToast.message}`
+        : 'SMS from CivicAuth: Verification OTP dispatched.';
+
+      return res.status(200).json({
+        success: true,
+        status: 'queued',
+        message: 'Verification OTP dispatched via SMS.',
+        phone: receipt.phoneNormalized,
+        messageId: receipt.messageId,
+        cooldownSeconds: receipt.cooldownSeconds,
+        provider: receipt.provider,
+        virtualSmsToast: toastString,
+        receipt: receipt.virtualSmsToast,
+      });
+    } catch (err: any) {
+      const status = err.status || 400;
+      return res.status(status).json({
+        error: err.message || 'Failed to dispatch verification OTP.',
+        retryAfter: err.retryAfter,
+      });
+    }
+  };
+
   const citizenVerifyHandler = async (req: Request, res: Response) => {
-    const { phoneNumber, otpCode, preferredLang = 'en' } = req.body;
-    if (!phoneNumber || !/^\d{10}$/.test(phoneNumber) || !otpCode || otpCode.length !== 6) {
+    const rawPhone = req.body.phoneNumber || req.body.phone;
+    const rawOtp = req.body.otpCode || req.body.otp;
+    const { preferredLang = 'en' } = req.body;
+
+    if (!rawPhone) {
+      return res.status(400).json({ error: 'Valid 10-digit mobile number and 6-digit OTP required.' });
+    }
+    const cleanPhone = smsDispatchService.normalizePhoneNumber(rawPhone);
+    if (!/^\d{10}$/.test(cleanPhone) || !rawOtp || String(rawOtp).trim().length !== 6) {
       return res.status(400).json({ error: 'Valid 10-digit mobile number and 6-digit OTP required.' });
     }
 
-    const maskedPhone = `XXXXXX${phoneNumber.slice(-4)}`;
-    const userId = `usr-cit-${phoneNumber.slice(-4)}-${Date.now().toString(36)}`;
+    const verifyResult = smsDispatchService.verifyOtp(cleanPhone, String(rawOtp).trim());
+    if (!verifyResult.valid) {
+      const status = verifyResult.remainingAttempts === 0 ? 429 : 401;
+      return res.status(status).json({
+        error: verifyResult.error || 'Invalid OTP code.',
+        remainingAttempts: verifyResult.remainingAttempts,
+      });
+    }
+
+    const maskedPhone = `XXXXXX${cleanPhone.slice(-4)}`;
+    const userId = `usr-cit-${cleanPhone.slice(-4)}-${Date.now().toString(36)}`;
 
     // Generate JWT token
     const accessToken = jwt.sign(
@@ -160,10 +213,12 @@ export function createAuthAndOfficerRouter(
     return res.status(200).json({
       status: 'authenticated',
       persona: 'CITIZEN',
-      redirectUrl: '/citizen/dashboard', // Existing Citizen Page
+      role: 'citizen',
+      redirectUrl: '/citizen/dashboard',
       accessToken,
       user: {
         userId,
+        phone: `+91 ${cleanPhone}`,
         maskedPhone,
         preferredLang,
         defaultDistrictId: 10,
@@ -171,25 +226,30 @@ export function createAuthAndOfficerRouter(
     });
   };
 
+  router.post('/api/v1/auth/citizen/send-otp', citizenSendOtpHandler);
+  router.post('/auth/citizen/send-otp', citizenSendOtpHandler);
+  router.post('/api/auth/user/send-otp', citizenSendOtpHandler);
+  router.post('/api/v1/auth/user/send-otp', citizenSendOtpHandler);
+
   router.post('/api/v1/auth/citizen/verify-otp', citizenVerifyHandler);
   router.post('/auth/citizen/verify-otp', citizenVerifyHandler);
+  router.post('/api/auth/user/verify-otp', citizenVerifyHandler);
+  router.post('/api/v1/auth/user/verify-otp', citizenVerifyHandler);
 
   // ---------------------------------------------------------------------------
-  // 2. OFFICER PHONE OTP / CREDENTIAL LOGIN -> Routes to Officer Command Portal
+  // 2. OFFICER DIRECT LOGIN (NO OTP, NO BADGE ID REQUIRED)
   // ---------------------------------------------------------------------------
   const officerLoginHandler = async (req: Request, res: Response) => {
-    const { phoneNumber, otpCode, officerBadgeId, specialAccessCode } = req.body;
+    const rawPhone = req.body.phoneNumber || req.body.phone;
+    const { officerBadgeId, specialAccessCode } = req.body;
 
     let matchedOfficer: OfficerRecord | undefined;
 
-    // A. Phone Number + OTP Verification Mode (Primary)
-    if (phoneNumber) {
-      const cleanPhone = String(phoneNumber).replace(/\D/g, '');
+    // Primary & Direct Officer Login: Phone Number Only (Zero OTP, Zero Badge required)
+    if (rawPhone) {
+      const cleanPhone = String(rawPhone).replace(/\D/g, '');
       if (!/^\d{10}$/.test(cleanPhone)) {
         return res.status(400).json({ error: 'Valid 10-digit official mobile number required.' });
-      }
-      if (!otpCode || String(otpCode).trim().length !== 6) {
-        return res.status(400).json({ error: 'Valid 6-digit SMS OTP required.' });
       }
 
       // 1. Lookup in seeded verified officer directory
@@ -255,7 +315,7 @@ export function createAuthAndOfficerRouter(
         });
       }
     }
-    // B. Legacy Badge ID + Special Access Code (Backwards Compatibility) or Single Access Code
+    // Optional Fallback: Badge ID / Access Code for legacy backwards-compatibility only
     else if ((officerBadgeId && specialAccessCode) || req.body.accessCode || specialAccessCode) {
       const codeOrBadge = String(req.body.accessCode || specialAccessCode || '').trim();
       const codeHash = crypto
@@ -284,7 +344,7 @@ export function createAuthAndOfficerRouter(
       }
     } else {
       return res.status(400).json({
-        error: 'Official 10-digit mobile number and 6-digit OTP are required.',
+        error: 'Official registered 10-digit mobile number required for direct login.',
       });
     }
 
@@ -306,16 +366,20 @@ export function createAuthAndOfficerRouter(
     return res.status(200).json({
       status: 'authenticated',
       persona: 'OFFICER',
-      redirectUrl: '/authority-portal/dashboard',
+      role: 'officer',
+      redirectUrl: '/officer/dashboard',
       accessToken,
       officer: matchedOfficer,
     });
   };
 
-  router.post('/api/v1/auth/officer/verify-otp', officerLoginHandler);
-  router.post('/auth/officer/verify-otp', officerLoginHandler);
+  router.post('/api/v1/auth/officer/login', officerLoginHandler);
+  router.post('/auth/officer/login', officerLoginHandler);
+  router.post('/api/auth/officer/login', officerLoginHandler);
   router.post('/api/v1/auth/officer/phone-login', officerLoginHandler);
   router.post('/auth/officer/phone-login', officerLoginHandler);
+  router.post('/api/v1/auth/officer/verify-otp', officerLoginHandler);
+  router.post('/auth/officer/verify-otp', officerLoginHandler);
   router.post('/api/v1/auth/officer/code-login', officerLoginHandler);
   router.post('/auth/officer/code-login', officerLoginHandler);
   router.post('/api/v1/auth/officer/verify-access-code', officerLoginHandler);

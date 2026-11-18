@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CallPoliceButton } from '../components/CallPoliceButton';
 
 export interface EvidencePhoto {
   image_id: string;
@@ -520,6 +521,8 @@ export const VolumeRankedOfficerPortalPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <CallPoliceButton variant="header" />
+
             <button
               type="button"
               onClick={fetchVolumeSortedData}

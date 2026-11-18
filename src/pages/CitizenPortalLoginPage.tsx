@@ -1,21 +1,43 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useRegion } from '../context/RegionContext';
+import { RegionLocationBanner } from '../components/RegionLocationBanner';
+import { CallPoliceButton } from '../components/CallPoliceButton';
+import { EmergencyHelplinesDrawer } from '../components/EmergencyHelplinesDrawer';
 
 export const CitizenPortalLoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { loginCitizen } = useAuth();
+  const { isHelplinesDrawerOpen, setIsHelplinesDrawerOpen } = useRegion();
 
   const [citizenPhone, setCitizenPhone] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [virtualSmsToast, setVirtualSmsToast] = useState<string | null>(null);
 
   const cleanPhone = citizenPhone.replace(/\D/g, '');
   const isValidPhone = cleanPhone.length === 10;
   const isValidOtp = otpCode.trim().length === 6;
+
+  // Masked phone display: e.g. +91 98480 ****21
+  const maskedPhone = cleanPhone.length === 10
+    ? `+91 ${cleanPhone.slice(0, 5)} ****${cleanPhone.slice(8)}`
+    : `+91 ${cleanPhone}`;
+
+  // Resend cooldown timer tick
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value.replace(/\D/g, '').slice(0, 10);
@@ -23,8 +45,8 @@ export const CitizenPortalLoginPage: React.FC = () => {
     setErrorMsg(null);
   };
 
-  const handleSendOtp = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setErrorMsg(null);
 
     if (!isValidPhone) {
@@ -32,7 +54,38 @@ export const CitizenPortalLoginPage: React.FC = () => {
       return;
     }
 
-    setOtpSent(true);
+    if (resendCooldown > 0) {
+      setErrorMsg(`Please wait ${resendCooldown} seconds before requesting a new OTP.`);
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const res = await fetch('/api/v1/auth/citizen/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: cleanPhone,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to dispatch verification OTP.');
+      }
+
+      setOtpSent(true);
+      setOtpCode(''); // Never auto-fill OTP field; require manual user input
+      setResendCooldown(30);
+
+      if (data.virtualSmsToast) {
+        setVirtualSmsToast(data.virtualSmsToast);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to dispatch verification code. Please retry.');
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -100,7 +153,10 @@ export const CitizenPortalLoginPage: React.FC = () => {
 
   return (
     <div className="min-h-dvh bg-stitch-surface-canvas flex flex-col justify-between font-sans text-stitch-ink-primary">
-      {/* Header */}
+      {/* 1. Automated Location & Regional Server Bar */}
+      <RegionLocationBanner onOpenHelplines={() => setIsHelplinesDrawerOpen(true)} />
+
+      {/* 2. Header with Call Police (100) & ERSS 112 */}
       <header className="bg-stitch-navy text-white py-4 px-6 shadow-stitch-sm border-b-2 border-stitch-terracotta">
         <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -116,13 +172,16 @@ export const CitizenPortalLoginPage: React.FC = () => {
             </div>
           </div>
 
-          <a
-            href="tel:112"
-            className="min-h-touch px-4 py-2 rounded-stitch-btn bg-stitch-emergency hover:bg-stitch-emergency-hover text-white font-bold text-xs flex items-center gap-1.5 shadow-stitch-sm transition-all"
-          >
-            <span className="material-symbols-outlined text-sm">emergency</span>
-            <span>Dial 112 Emergency</span>
-          </a>
+          <div className="flex items-center gap-2 flex-wrap">
+            <CallPoliceButton variant="header" />
+            <a
+              href="tel:112"
+              className="min-h-touch px-3.5 py-1.5 rounded-stitch-btn bg-stitch-emergency hover:bg-stitch-emergency-hover text-white font-bold text-xs flex items-center gap-1.5 shadow-stitch-sm transition-all uppercase"
+            >
+              <span className="material-symbols-outlined text-sm">emergency</span>
+              <span>112 Emergency</span>
+            </a>
+          </div>
         </div>
       </header>
 
@@ -197,6 +256,21 @@ export const CitizenPortalLoginPage: React.FC = () => {
             </span>
           </div>
 
+          {/* Virtual SMS Notification Toast / Delivery Banner */}
+          {virtualSmsToast && (
+            <div className="p-3.5 rounded-stitch-btn bg-blue-50 border border-blue-200 text-blue-950 text-xs shadow-stitch-sm flex items-start gap-2.5 animate-fadeIn">
+              <span className="material-symbols-outlined text-base text-blue-700 shrink-0 mt-0.5">sms</span>
+              <div className="flex-1">
+                <span className="font-mono text-[10px] font-bold text-blue-800 uppercase block tracking-wider">
+                  Automated Gateway Delivery
+                </span>
+                <p className="font-medium text-xs text-blue-900 mt-0.5 leading-snug">
+                  {virtualSmsToast}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Phone Number / OTP Form */}
           {!otpSent ? (
             <form onSubmit={handleSendOtp} className="space-y-4">
@@ -215,20 +289,21 @@ export const CitizenPortalLoginPage: React.FC = () => {
                     value={citizenPhone}
                     onChange={handlePhoneChange}
                     placeholder="9876543210"
+                    disabled={isSendingOtp}
                     className="w-full min-h-touch px-3 rounded-r-stitch-btn border border-stitch-surface-border font-mono text-sm font-bold text-stitch-ink-primary placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-stitch-navy"
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  A 6-digit SMS OTP will be generated for sovereign verification.
+                  A fresh, cryptographically random 6-digit SMS OTP will be generated and dispatched.
                 </p>
               </div>
 
               <button
                 type="submit"
-                disabled={!isValidPhone}
+                disabled={!isValidPhone || isSendingOtp}
                 className="w-full min-h-touch py-2.5 px-4 rounded-stitch-btn bg-stitch-navy hover:bg-stitch-navy-dark text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-stitch-sm transition-all disabled:opacity-50"
               >
-                <span>Send Verification OTP</span>
+                <span>{isSendingOtp ? 'Dispatching SMS OTP...' : 'Send Verification OTP'}</span>
                 <span className="material-symbols-outlined text-sm">send</span>
               </button>
             </form>
@@ -236,18 +311,19 @@ export const CitizenPortalLoginPage: React.FC = () => {
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <div className="p-3 rounded-stitch-btn bg-stitch-surface-muted border border-stitch-surface-border flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase block">Sending OTP to:</span>
-                  <span className="font-mono text-xs font-bold text-stitch-ink-primary">+91 {citizenPhone}</span>
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block">OTP Dispatched to:</span>
+                  <span className="font-mono text-xs font-bold text-stitch-ink-primary">{maskedPhone}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     setOtpSent(false);
                     setOtpCode('');
+                    setVirtualSmsToast(null);
                   }}
                   className="text-xs text-stitch-terracotta underline font-bold"
                 >
-                  Change
+                  Edit Number
                 </button>
               </div>
 
@@ -261,12 +337,29 @@ export const CitizenPortalLoginPage: React.FC = () => {
                   maxLength={6}
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
+                  placeholder="------"
+                  autoComplete="one-time-code"
                   className="w-full min-h-touch px-3 text-center tracking-[0.3em] font-mono text-lg font-bold rounded-stitch-btn border border-stitch-surface-border focus:outline-none focus:ring-2 focus:ring-stitch-navy"
                 />
                 <p className="text-[11px] text-slate-500 mt-1 text-center">
-                  Demo hint: Enter any 6-digit code (e.g. <code>123456</code>)
+                  Enter the 6-digit code received via SMS notification above.
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-stitch-ink-secondary">Didn't receive code?</span>
+                <button
+                  type="button"
+                  disabled={resendCooldown > 0 || isSendingOtp}
+                  onClick={() => handleSendOtp()}
+                  className="font-bold text-stitch-navy hover:text-stitch-terracotta transition-colors disabled:text-slate-400 disabled:cursor-not-allowed"
+                >
+                  {resendCooldown > 0
+                    ? `Resend OTP in ${resendCooldown}s`
+                    : isSendingOtp
+                    ? 'Resending...'
+                    : 'Resend OTP'}
+                </button>
               </div>
 
               <button
@@ -300,6 +393,12 @@ export const CitizenPortalLoginPage: React.FC = () => {
           <span className="font-mono text-[11px]">Sovereign Civic Infrastructure</span>
         </div>
       </footer>
+
+      {/* Dynamic Emergency Helplines Drawer */}
+      <EmergencyHelplinesDrawer
+        isOpen={isHelplinesDrawerOpen}
+        onClose={() => setIsHelplinesDrawerOpen(false)}
+      />
     </div>
   );
 };

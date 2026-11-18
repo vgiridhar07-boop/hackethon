@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 
 interface CitizenAuthModalProps {
@@ -14,28 +14,92 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
   currentUser,
   onUpdateUser,
 }) => {
-  const [phoneNumber, setPhoneNumber] = useState<string>(currentUser.phone_number || '+91 98765 43210');
+  const [phoneNumber, setPhoneNumber] = useState<string>(currentUser.phone_number || '9876543210');
   const [fullName, setFullName] = useState<string>(currentUser.full_name || 'vgiri');
   const [otpStage, setOtpStage] = useState<'phone' | 'otp' | 'success'>('phone');
   const [otpCode, setOtpCode] = useState<string>('');
-  const [simulatedOtp, setSimulatedOtp] = useState<string>('482910');
+  const [virtualSmsToast, setVirtualSmsToast] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+
+  const cleanPhone = phoneNumber.replace(/\D/g, '').slice(-10);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   if (!isOpen) return null;
 
-  const handleSendOtp = () => {
-    setSimulatedOtp('482910');
-    setOtpStage('otp');
+  const handleSendOtp = async () => {
+    setErrorMsg(null);
+    if (cleanPhone.length !== 10) {
+      setErrorMsg('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/auth/citizen/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: cleanPhone }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to dispatch verification OTP.');
+      }
+
+      setVirtualSmsToast(data.virtualSmsToast || 'SMS dispatched to mobile device.');
+      setOtpCode('');
+      setResendCooldown(30);
+      setOtpStage('otp');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to dispatch code.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyOtp = () => {
-    if (otpCode.length === 6 || otpCode === '482910') {
+  const handleVerifyOtp = async () => {
+    setErrorMsg(null);
+    if (otpCode.trim().length !== 6) {
+      setErrorMsg('Please enter a valid 6-digit OTP code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/auth/citizen/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: cleanPhone,
+          otpCode: otpCode.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'OTP verification failed');
+      }
+
       const updated: UserProfile = {
         ...currentUser,
-        phone_number: phoneNumber,
+        phone_number: `+91 ${cleanPhone}`,
         full_name: fullName,
       };
       onUpdateUser(updated);
       setOtpStage('success');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Verification failed. Please retry.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,6 +131,13 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4">
+          {errorMsg && (
+            <div className="p-3 rounded-stitch-btn bg-stitch-emergency-surface border border-stitch-emergency-border text-stitch-emergency text-xs font-semibold flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm shrink-0">error</span>
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           {otpStage === 'phone' && (
             <div className="space-y-4">
               <div>
@@ -91,6 +162,7 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
                   type="tel"
                   value={phoneNumber}
                   onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="9876543210"
                   className="w-full min-h-touch px-3.5 py-2.5 border border-stitch-surface-border rounded-stitch-btn text-sm font-semibold text-stitch-ink-primary focus:ring-2 focus:ring-stitch-navy focus:outline-none"
                 />
               </div>
@@ -102,10 +174,11 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
+                  disabled={loading}
                   onClick={handleSendOtp}
-                  className="w-full min-h-touch px-6 py-2.5 rounded-stitch-btn bg-stitch-navy hover:bg-stitch-navy-light text-white font-bold text-sm shadow-stitch-sm transition-all"
+                  className="w-full min-h-touch px-6 py-2.5 rounded-stitch-btn bg-stitch-navy hover:bg-stitch-navy-light text-white font-bold text-sm shadow-stitch-sm transition-all disabled:opacity-50"
                 >
-                  Send Verification OTP →
+                  {loading ? 'Dispatching SMS OTP...' : 'Send Verification OTP \u2192'}
                 </button>
               </div>
             </div>
@@ -113,9 +186,17 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
 
           {otpStage === 'otp' && (
             <div className="space-y-4">
-              <div className="text-center p-3 bg-blue-50 rounded-stitch-btn border border-blue-200 text-xs text-blue-900">
-                OTP sent to <strong>{phoneNumber}</strong>. For demonstration, use code: <strong>{simulatedOtp}</strong>.
-              </div>
+              {virtualSmsToast && (
+                <div className="p-3 bg-blue-50 rounded-stitch-btn border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                  <span className="material-symbols-outlined text-sm text-blue-700 shrink-0 mt-0.5">sms</span>
+                  <div className="flex-1">
+                    <span className="font-mono text-[10px] font-bold text-blue-800 uppercase block">
+                      SMS Gateway Delivery
+                    </span>
+                    <p className="mt-0.5 font-medium">{virtualSmsToast}</p>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="auth-otp-code" className="block text-xs font-bold text-stitch-ink-muted uppercase mb-1 text-center">
@@ -126,26 +207,43 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
                   type="text"
                   maxLength={6}
                   value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="482910"
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="------"
+                  autoComplete="one-time-code"
                   className="w-full min-h-touch text-center tracking-widest text-xl font-mono font-bold px-3.5 py-2.5 border border-stitch-surface-border rounded-stitch-btn text-stitch-ink-primary focus:ring-2 focus:ring-stitch-navy focus:outline-none"
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between pt-1 text-xs">
                 <button
                   type="button"
-                  onClick={() => setOtpStage('phone')}
-                  className="text-xs text-stitch-ink-muted hover:underline"
+                  onClick={() => {
+                    setOtpStage('phone');
+                    setVirtualSmsToast(null);
+                  }}
+                  className="text-stitch-ink-muted hover:underline"
                 >
-                  ← Edit Number
+                  Edit Number
                 </button>
+
                 <button
                   type="button"
-                  onClick={handleVerifyOtp}
-                  className="min-h-touch px-6 py-2.5 rounded-stitch-btn bg-stitch-terracotta hover:bg-stitch-terracotta-hover text-white font-bold text-sm shadow-stitch-sm transition-all"
+                  disabled={resendCooldown > 0 || loading}
+                  onClick={handleSendOtp}
+                  className="font-bold text-stitch-navy hover:text-stitch-terracotta disabled:text-slate-400"
                 >
-                  Verify & Sign In →
+                  {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend Code'}
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  disabled={otpCode.length !== 6 || loading}
+                  onClick={handleVerifyOtp}
+                  className="w-full min-h-touch px-6 py-2.5 rounded-stitch-btn bg-stitch-terracotta hover:bg-stitch-terracotta-hover text-white font-bold text-sm shadow-stitch-sm transition-all disabled:opacity-50"
+                >
+                  {loading ? 'Verifying...' : 'Verify & Sign In \u2192'}
                 </button>
               </div>
             </div>
@@ -159,8 +257,8 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
               <h3 className="text-h3 font-black text-stitch-ink-primary">
                 Identity Verified
               </h3>
-              <p className="text-xs text-stitch-ink-muted">
-                Resident ID #8942 active. Session secured under DPDP Act 2023 regulations.
+              <p className="text-xs text-stitch-ink-secondary">
+                Citizen profile active for <strong>{fullName}</strong> (+91 {cleanPhone}).
               </p>
               <div className="pt-2">
                 <button
@@ -178,4 +276,3 @@ export const CitizenAuthModal: React.FC<CitizenAuthModalProps> = ({
     </div>
   );
 };
-

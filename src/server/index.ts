@@ -5,6 +5,7 @@ import fs from 'fs';
 import { directoryRouter } from './routes/directory';
 import { geoRouter } from './routes/geo';
 import { complaintsRouter } from './routes/complaints';
+import { regionRoutes, regionContextMiddleware } from './routes/regionRoutes';
 import { createAuthAndOfficerRouter } from '../controllers/authAndOfficerController';
 import { createIsolatedPortalRouter } from '../controllers/isolatedPortalController';
 import { authenticateRequest } from './middleware/auth';
@@ -22,6 +23,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use('/uploads', express.static(uploadsDir));
 app.use(authenticateRequest);
+app.use(regionContextMiddleware);
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -44,6 +46,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Mount modular API v1 routers
+app.use(regionRoutes);
 app.use(createAuthAndOfficerRouter());
 app.use(createIsolatedPortalRouter());
 app.use('/api/v1/directory', directoryRouter);

@@ -62,11 +62,24 @@ async function runDualPortalAuthTests() {
   });
   assert(invalidOtpRes.status === 400, 'Invalid OTP length rejected with HTTP 400');
 
-  // Test 2.3: Valid Citizen OTP verification
+  // Test 2.3: Citizen Send OTP via automated dispatch pipeline
+  const sendCitRes = await fetch(`${BASE_URL}/api/v1/auth/citizen/send-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phoneNumber: '9876543210' }),
+  });
+  assert(sendCitRes.status === 200, 'Citizen send-otp dispatched successfully with HTTP 200');
+  const sendCitData = await sendCitRes.json();
+  assert(Boolean(sendCitData.virtualSmsToast), 'Citizen send-otp returned virtual SMS toast');
+  const otpMatch = sendCitData.virtualSmsToast.match(/code is (\d{6})/);
+  assert(Boolean(otpMatch && otpMatch[1]), 'Extracted delivered 6-digit OTP code');
+  const activeOtp = otpMatch[1];
+
+  // Test 2.4: Valid Citizen OTP verification
   const citLoginRes = await fetch(`${BASE_URL}/api/v1/auth/citizen/verify-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9876543210', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9876543210', otpCode: activeOtp }),
   });
   assert(citLoginRes.status === 200, 'Citizen OTP login succeeded with HTTP 200');
   const citData = await citLoginRes.json();
@@ -77,25 +90,28 @@ async function runDualPortalAuthTests() {
   const citizenToken = citData.accessToken;
 
   // -------------------------------------------------------------------------
-  // 3. OFFICER LOGIN & WHITELIST VERIFICATION (/login/officer)
+  // 3. OFFICER DIRECT LOGIN & DIRECTORY WHITELIST (/login/officer)
   // -------------------------------------------------------------------------
-  console.log('\n--- 3. Testing Officer Login & Directory Whitelist ---');
+  console.log('\n--- 3. Testing Officer Direct Login (Zero OTP / Badge) ---');
 
   // Test 3.1: Non-directory phone number rejected (Strict Whitelist)
-  const unauthOfficerRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  const unauthOfficerRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9999999999', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9999999999' }),
   });
-  assert(unauthOfficerRes.status === 401, 'Unauthorized non-directory officer phone rejected with HTTP 401');
+  assert(
+    unauthOfficerRes.status === 401 || unauthOfficerRes.status === 403,
+    'Unauthorized non-directory officer phone rejected with HTTP 401/403'
+  );
 
-  // Test 3.2: PDF Directory-verified Officer Phone + OTP Login (Guntur Water: 9848011221)
-  const officerPhoneRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  // Test 3.2: PDF Directory-verified Officer Phone Direct Login (Guntur Water: 9848011221)
+  const officerPhoneRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9848011221', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9848011221' }),
   });
-  assert(officerPhoneRes.status === 200, 'Directory-verified Officer Phone + OTP returned HTTP 200');
+  assert(officerPhoneRes.status === 200, 'Directory-verified Officer Phone direct login returned HTTP 200');
   const officerPhoneData = await officerPhoneRes.json();
   assert(officerPhoneData.persona === 'OFFICER', 'Officer persona returned as OFFICER');
   assert(
@@ -107,15 +123,15 @@ async function runDualPortalAuthTests() {
 
   const officerToken = officerPhoneData.accessToken;
 
-  // Test 3.3: Special Access Code Login (GMC-OFF-44)
-  const accessCodeRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-access-code`, {
+  // Test 3.3: Directory-verified Officer Phone Direct Login (Guntur Roads: 9848011222)
+  const roadsOfficerRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accessCode: 'GMC-OFF-44' }),
+    body: JSON.stringify({ phone: '9848011222' }),
   });
-  assert(accessCodeRes.status === 200, 'Special Access Code login succeeded with HTTP 200');
-  const accessCodeData = await accessCodeRes.json();
-  assert(accessCodeData.officer.officer_badge_id === 'GMC-OFF-44', 'Officer Badge ID matches GMC-OFF-44');
+  assert(roadsOfficerRes.status === 200, 'Officer direct phone login for Roads returned HTTP 200');
+  const roadsData = await roadsOfficerRes.json();
+  assert(roadsData.officer.assigned_category === 'Roads', 'Officer category is Roads');
 
   // -------------------------------------------------------------------------
   // 4. STRICT PORTAL SEPARATION & RBAC ISOLATION

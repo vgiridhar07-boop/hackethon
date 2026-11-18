@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile, StateUT, DistrictRouting } from '../types';
+import { CallPoliceButton } from './CallPoliceButton';
 
 interface HeaderProps {
   user: UserProfile;
@@ -73,6 +74,8 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* User Profile & Regional Onboarding Pill */}
         <div className="flex items-center gap-2.5 shrink-0">
+          <CallPoliceButton variant="header" />
+
           {onOpenLoginOnboarding && (
             <button
               type="button"

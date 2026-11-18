@@ -94,15 +94,15 @@ async function runUnifiedDispatchTestSuite() {
   assert(dispatchRes.assigned_helplines.length > 0, 'Verified departmental helpline numbers attached');
 
   // -------------------------------------------------------------------------
-  // 3. OFFICER AUTHENTICATION & WHITELIST ENFORCEMENT (Module A)
+  // 3. OFFICER AUTHENTICATION & DIRECTORY ENFORCEMENT (Module A)
   // -------------------------------------------------------------------------
-  console.log('\n--- 3. Testing PDF-Verified Officer Authentication & Whitelist ---');
+  console.log('\n--- 3. Testing PDF-Verified Officer Direct Phone Authentication ---');
 
-  // Test 3.1: Seeded Guntur Water Officer
-  const seededWaterRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  // Test 3.1: Seeded Guntur Water Officer (Direct Phone Login)
+  const seededWaterRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9848011221', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9848011221' }),
   });
   assert(seededWaterRes.status === 200, 'Seeded Guntur Water Officer login returned HTTP 200');
   const seededWaterData = await seededWaterRes.json();
@@ -110,11 +110,11 @@ async function runUnifiedDispatchTestSuite() {
   assert(seededWaterData.officer.assigned_category === 'Water', 'Seeded officer category is Water');
   assert(seededWaterData.officer.district_id === 10, 'Seeded officer district_id is 10 (Guntur)');
 
-  // Test 3.2: Seeded Guntur Roads Officer
-  const seededRoadsRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  // Test 3.2: Seeded Guntur Roads Officer (Direct Phone Login)
+  const seededRoadsRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9848011222', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9848011222' }),
   });
   assert(seededRoadsRes.status === 200, 'Seeded Guntur Roads Officer login returned HTTP 200');
   const seededRoadsData = await seededRoadsRes.json();
@@ -122,10 +122,10 @@ async function runUnifiedDispatchTestSuite() {
   assert(seededRoadsData.officer.assigned_category === 'Roads', 'Seeded officer category is Roads');
 
   // Test 3.3: Master PDF Registry Number: Tawang Electricity (8974170896)
-  const tawangPhoneRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  const tawangPhoneRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '8974170896', otpCode: '654321' }),
+    body: JSON.stringify({ phoneNumber: '8974170896' }),
   });
   assert(tawangPhoneRes.status === 200, 'Tawang Electricity PDF registry number authenticated successfully');
   const tawangData = await tawangPhoneRes.json();
@@ -133,20 +133,20 @@ async function runUnifiedDispatchTestSuite() {
   assert(tawangData.officer.district_name === 'Tawang', 'Tawang officer district is Tawang');
 
   // Test 3.4: Master PDF Registry Number: Guntur Roads (9441244749)
-  const gntRoadsRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  const gntRoadsRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9441244749', otpCode: '112233' }),
+    body: JSON.stringify({ phoneNumber: '9441244749' }),
   });
   assert(gntRoadsRes.status === 200, 'Guntur Roads PDF directory number authenticated successfully');
   const gntRoadsData = await gntRoadsRes.json();
   assert(gntRoadsData.officer.assigned_category === 'Roads', 'Guntur Roads directory officer category is Roads');
 
   // Test 3.5: Non-whitelisted unauthorized number rejection
-  const unauthorizedRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  const unauthorizedRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9999999999', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9999999999' }),
   });
   assert(unauthorizedRes.status === 401, 'Unauthorized non-directory phone number rejected with HTTP 401');
   const unauthData = await unauthorizedRes.json();
@@ -155,13 +155,13 @@ async function runUnifiedDispatchTestSuite() {
     'Returned official directory restriction error'
   );
 
-  // Test 3.6: Invalid OTP format
-  const badOtpRes = await fetch(`${BASE_URL}/api/v1/auth/officer/verify-otp`, {
+  // Test 3.6: Malformed phone format
+  const badPhoneRes = await fetch(`${BASE_URL}/api/v1/auth/officer/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9848011221', otpCode: '12' }),
+    body: JSON.stringify({ phoneNumber: '123' }),
   });
-  assert(badOtpRes.status === 400, 'Short OTP rejected with HTTP 400');
+  assert(badPhoneRes.status === 400, 'Short/malformed phone rejected with HTTP 400');
 
   // -------------------------------------------------------------------------
   // 4. STRICT PORTAL ISOLATION (Citizens Denied Officer Endpoints)
@@ -169,10 +169,19 @@ async function runUnifiedDispatchTestSuite() {
   console.log('\n--- 4. Testing Strict Zero-Visibility Portal Isolation ---');
 
   // Obtain Citizen Token
+  const sendCitRes = await fetch(`${BASE_URL}/api/v1/auth/citizen/send-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phoneNumber: '9876500001' }),
+  });
+  const sendCitData = await sendCitRes.json();
+  const match = sendCitData.virtualSmsToast?.match(/code is (\d{6})/);
+  const activeOtp = match ? match[1] : '123456';
+
   const citRes = await fetch(`${BASE_URL}/api/v1/auth/citizen/verify-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phoneNumber: '9876500001', otpCode: '123456' }),
+    body: JSON.stringify({ phoneNumber: '9876500001', otpCode: activeOtp }),
   });
   const citData = await citRes.json();
   const citizenToken = citData.accessToken;

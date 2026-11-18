@@ -3,39 +3,33 @@ import { useNavigate } from 'react-router-dom';
 
 export const OfficerDirectPortalLoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const [officerPhone, setOfficerPhone] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
+  const [officerPhone, setOfficerPhone] = useState('9848011221');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const isSubdomain = typeof window !== 'undefined' && window.location.hostname.startsWith('officer.');
+  const cleanPhone = officerPhone.replace(/\D/g, '').slice(0, 10);
 
   const handleOfficerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    if (!otpSent) {
-      if (!/^\d{10}$/.test(officerPhone)) {
-        setErrorMsg('Please enter a valid 10-digit registered official mobile number.');
-        return;
-      }
-      setOtpSent(true);
+    if (cleanPhone.length !== 10) {
+      setErrorMsg('Please enter a valid 10-digit registered official mobile number.');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/auth/officer/verify-otp', {
+      const res = await fetch('/api/v1/auth/officer/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phoneNumber: officerPhone.trim(),
-          otpCode: otpCode.trim(),
+          phoneNumber: cleanPhone,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Authentication failed');
+      if (!res.ok) throw new Error(data.error || 'This phone number is not registered as an Officer.');
 
       localStorage.setItem('officer_command_token', data.accessToken);
       localStorage.setItem('civic_auth_token', data.accessToken);
@@ -48,7 +42,7 @@ export const OfficerDirectPortalLoginPage: React.FC = () => {
         navigate('/authority-portal/dashboard');
       }
     } catch (err: any) {
-      setErrorMsg(err.message);
+      setErrorMsg(err.message || 'Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -69,7 +63,7 @@ export const OfficerDirectPortalLoginPage: React.FC = () => {
                 NIC S3WaaS • RESTRICTED GOV INTRANET
               </p>
               <h1 className="text-h2 font-black tracking-tight text-white">
-                Municipal & Nodal Officer Portal
+                Municipal &amp; Nodal Officer Portal
               </h1>
             </div>
           </div>
@@ -94,7 +88,7 @@ export const OfficerDirectPortalLoginPage: React.FC = () => {
 
           <h2 className="text-h2 text-stitch-ink-primary font-bold">Officer Sign In</h2>
           <p className="text-xs text-stitch-ink-secondary mt-1 mb-5">
-            Log in using your registered 10-digit official mobile number and 6-digit SMS OTP to access your jurisdiction queue.
+            Log in directly using your registered 10-digit official mobile number to access your jurisdiction queue.
           </p>
 
           {errorMsg && (
@@ -118,7 +112,6 @@ export const OfficerDirectPortalLoginPage: React.FC = () => {
                   maxLength={10}
                   value={officerPhone}
                   onChange={(e) => setOfficerPhone(e.target.value.replace(/\D/g, ''))}
-                  disabled={otpSent}
                   placeholder="e.g. 9848011221"
                   className="flex-1 min-h-touch px-3.5 rounded-r-stitch-btn border border-stitch-surface-border text-sm font-mono text-stitch-ink-primary focus:outline-none focus:ring-2 focus:ring-stitch-terracotta"
                   required
@@ -129,61 +122,54 @@ export const OfficerDirectPortalLoginPage: React.FC = () => {
               </p>
             </div>
 
-            {otpSent && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-label text-stitch-ink-primary">
-                    6-Digit SMS Verification OTP
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setOtpSent(false)}
-                    className="text-xs text-stitch-terracotta font-semibold hover:underline"
-                  >
-                    Change Number
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Enter 6-digit OTP (e.g. 123456)"
-                  className="w-full min-h-touch px-3.5 rounded-stitch-btn border border-stitch-surface-border font-mono text-base tracking-widest text-center text-stitch-ink-primary focus:outline-none focus:ring-2 focus:ring-stitch-terracotta"
-                  required
-                />
-                <p className="text-[11px] text-stitch-ink-muted mt-1.5">
-                  Test OTP code is 123456
-                </p>
-              </div>
-            )}
-
             <button
               type="submit"
-              disabled={loading}
-              className="min-h-touch w-full rounded-stitch-btn bg-stitch-terracotta hover:bg-stitch-terracotta-hover text-white font-bold text-sm shadow-stitch-sm transition-all flex items-center justify-center gap-2"
+              disabled={cleanPhone.length !== 10 || loading}
+              className="w-full min-h-touch py-2.5 px-4 rounded-stitch-btn bg-stitch-terracotta hover:bg-stitch-terracotta-hover text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-stitch-sm transition-all disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-sm">shield</span>
-              <span>
-                {loading
-                  ? 'Verifying Directory...'
-                  : otpSent
-                  ? 'Verify & Open Command Portal [ENTER]'
-                  : 'Send Officer OTP [NEXT]'}
-              </span>
+              <span>{loading ? 'Authenticating...' : 'Enter Authority Portal'}</span>
+              <span className="material-symbols-outlined text-sm">login</span>
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-stitch-surface-border text-center">
-            <p className="text-[11px] font-mono text-slate-500">
-              Verified Officer Directory Numbers: 9848011221 (Guntur Water), 9848011222 (Guntur Roads), 9848011223 (Sanitation), 9811011224 (Delhi Drainage), 9822011225 (Mumbai Elec)
-            </p>
+          {/* Quick-Pick Directory Credentials */}
+          <div className="mt-5 pt-3 border-t border-stitch-surface-border">
+            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase block mb-1.5">
+              Authorized Directory Numbers:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setOfficerPhone('9848011221')}
+                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-mono font-bold text-slate-700"
+              >
+                Guntur Water (9848011221)
+              </button>
+              <button
+                type="button"
+                onClick={() => setOfficerPhone('9848011222')}
+                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-mono font-bold text-slate-700"
+              >
+                Guntur Roads (9848011222)
+              </button>
+              <button
+                type="button"
+                onClick={() => setOfficerPhone('9811011224')}
+                className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[10px] font-mono font-bold text-slate-700"
+              >
+                Delhi Drainage (9811011224)
+              </button>
+            </div>
           </div>
         </div>
       </main>
 
-      <footer className="py-3 px-6 bg-stitch-surface-muted border-t border-stitch-surface-border text-center font-mono text-[11px] text-stitch-ink-muted">
-        NIC Sovereign Intranet Gateway • Strictly Monitored • Unauthorized Access Subject to IT Act 2000 Prosecution
+      {/* Sovereign Footer */}
+      <footer className="border-t border-stitch-surface-border bg-white py-3 px-6 text-center text-xs text-slate-500">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-2">
+          <span>National Informatics Centre (NIC) • Government Intranet Node</span>
+          <span className="font-mono text-[11px]">Direct Sovereign Whitelist Active</span>
+        </div>
       </footer>
     </div>
   );

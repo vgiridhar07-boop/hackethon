@@ -1,8 +1,13 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useRegion } from '../context/RegionContext';
+import { RegionLocationBanner } from '../components/RegionLocationBanner';
+import { CallPoliceButton } from '../components/CallPoliceButton';
+import { EmergencyHelplinesDrawer } from '../components/EmergencyHelplinesDrawer';
 
 export const RoleSelectionGatewayPage: React.FC = () => {
   const navigate = useNavigate();
+  const { regionContext, isHelplinesDrawerOpen, setIsHelplinesDrawerOpen, helplines } = useRegion();
 
   const handleSelectRole = (rolePath: '/login/citizen' | '/login/officer') => {
     navigate(rolePath);
@@ -20,7 +25,10 @@ export const RoleSelectionGatewayPage: React.FC = () => {
 
   return (
     <div className="min-h-dvh bg-stitch-surface-canvas flex flex-col justify-between text-stitch-ink-primary font-sans">
-      {/* Top Sovereign Gov Header */}
+      {/* 1. Automated Location & Regional Server Bar (Triggered on page load) */}
+      <RegionLocationBanner onOpenHelplines={() => setIsHelplinesDrawerOpen(true)} />
+
+      {/* 2. Top Sovereign Gov Header with Prominent Call Police (100) & ERSS (112) */}
       <header className="bg-stitch-navy text-white py-4 px-6 shadow-stitch-sm border-b-2 border-stitch-terracotta">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -36,13 +44,14 @@ export const RoleSelectionGatewayPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-xs font-mono text-slate-300">
-              DPDP Act 2023 Compliant Gateway
-            </span>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Prominent Call Police (100) Button in Header */}
+            <CallPoliceButton variant="header" />
+
+            {/* National ERSS 112 Emergency Button */}
             <a
               href="tel:112"
-              className="min-h-touch px-3.5 py-2 rounded-stitch-btn bg-stitch-emergency hover:bg-stitch-emergency-hover text-white font-bold text-xs flex items-center gap-1.5 shadow-stitch-sm transition-all"
+              className="min-h-touch px-3.5 py-1.5 rounded-stitch-btn bg-stitch-emergency hover:bg-stitch-emergency-hover text-white font-bold text-xs flex items-center gap-1.5 shadow-stitch-sm transition-all uppercase"
             >
               <span className="material-symbols-outlined text-sm">emergency</span>
               <span>112 Emergency</span>
@@ -51,13 +60,42 @@ export const RoleSelectionGatewayPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Role Selection Centerpiece */}
+      {/* 3. Main Role Selection Centerpiece */}
       <main className="flex-1 flex items-center justify-center p-4 sm:p-6 lg:p-8">
-        <div className="w-full max-w-4xl space-y-8">
+        <div className="w-full max-w-4xl space-y-6">
+          {/* Emergency Priority Banner with Instant Access */}
+          <div className="rounded-stitch-card bg-red-50 border border-red-200 p-4 sm:p-5 shadow-stitch-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3 text-center sm:text-left">
+              <div className="w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-xl">shield</span>
+              </div>
+              <div>
+                <span className="font-mono text-[10px] font-extrabold uppercase tracking-wider text-red-700 block">
+                  PRIORITY EMERGENCY HELPLINES • {regionContext.district.toUpperCase()}, {regionContext.state.toUpperCase()}
+                </span>
+                <p className="text-xs font-semibold text-red-950 mt-0.5">
+                  In acute danger or witnessing a life-threatening collapse? Use instant emergency bypass:
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0 w-full sm:w-auto">
+              <CallPoliceButton variant="prominent" className="flex-1 sm:flex-initial" />
+              <button
+                type="button"
+                onClick={() => setIsHelplinesDrawerOpen(true)}
+                className="min-h-touch px-3.5 py-2.5 rounded-stitch-btn border border-red-300 hover:bg-red-100 text-red-900 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span className="material-symbols-outlined text-sm">contact_phone</span>
+                <span>Helplines ({helplines.length})</span>
+              </button>
+            </div>
+          </div>
+
           {/* Headline & Prompt */}
-          <div className="text-center space-y-2.5 max-w-2xl mx-auto">
+          <div className="text-center space-y-2.5 max-w-2xl mx-auto pt-2">
             <span className="inline-block px-3 py-1 rounded-stitch-pill bg-stitch-navy-tint text-stitch-navy font-mono text-xs font-bold uppercase tracking-wider">
-              Authentication Gateway
+              Authentication Gateway • {regionContext.serverLabel}
             </span>
             <h2 className="text-h1 sm:text-hero font-black text-stitch-ink-primary tracking-tight">
               Select your portal to continue
@@ -92,7 +130,7 @@ export const RoleSelectionGatewayPage: React.FC = () => {
                     Citizen
                   </h3>
                   <p className="text-xs sm:text-sm text-stitch-ink-secondary mt-1.5 leading-relaxed">
-                    Report civic issues, track resolution status, and view area updates.
+                    Report civic defects, attach photo evidence, and track SLA countdowns in your ward.
                   </p>
                 </div>
 
@@ -107,7 +145,7 @@ export const RoleSelectionGatewayPage: React.FC = () => {
                   </li>
                   <li className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-xs text-emerald-600">check_circle</span>
-                    <span>Receive instant updates via phone OTP or Google login</span>
+                    <span>Receive instant updates via randomized SMS OTP or Google login</span>
                   </li>
                 </ul>
               </div>
@@ -160,7 +198,7 @@ export const RoleSelectionGatewayPage: React.FC = () => {
                   </li>
                   <li className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-xs text-stitch-terracotta">shield</span>
-                    <span>PDF-verified phone number or badge ID authentication</span>
+                    <span>Direct phone login verified against 2026 Administrative Directory</span>
                   </li>
                 </ul>
               </div>
@@ -179,7 +217,7 @@ export const RoleSelectionGatewayPage: React.FC = () => {
           {/* Security & Regulatory Notice */}
           <div className="text-center text-xs text-slate-500 space-y-1">
             <p>
-              Official Gateway of National Civic Grievance Helpline Directory.
+              Official Gateway of National Civic Grievance Helpline Directory. Connected to {regionContext.jurisdiction}.
             </p>
             <p className="text-[11px] font-mono">
               Protected under Digital Personal Data Protection (DPDP) Act 2023 &amp; Information Technology Act 2000.
@@ -192,9 +230,15 @@ export const RoleSelectionGatewayPage: React.FC = () => {
       <footer className="border-t border-stitch-surface-border bg-white py-4 px-6 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
           <span>Government of India • Ministry of Electronics &amp; Information Technology</span>
-          <span className="font-mono text-[11px]">NIC S3WaaS Sovereign Infrastructure</span>
+          <span className="font-mono text-[11px]">NIC S3WaaS Sovereign Infrastructure • {regionContext.serverLabel}</span>
         </div>
       </footer>
+
+      {/* Dynamic Emergency Helplines Drawer */}
+      <EmergencyHelplinesDrawer
+        isOpen={isHelplinesDrawerOpen}
+        onClose={() => setIsHelplinesDrawerOpen(false)}
+      />
     </div>
   );
 };
